@@ -1,0 +1,46 @@
+type
+
+    Node
+    {
+        int data;
+        Node next;
+    }
+
+endtype
+
+int main()
+{
+    decl
+        Node head, tail, newNode;
+        int n, x, temp;
+    enddecl
+
+    begin
+        head = null;
+        tail = null;
+        temp = exposcall("Heapset");
+        temp = exposcall("Read", -1, n);
+
+        while(n > 0) do
+            temp = exposcall("Read", -1, x);
+            newNode = exposcall("Alloc", 2);
+            newNode.data = x;
+            newNode.next = null;
+
+            if(head == null) then
+                head = newNode;
+                tail = head;
+            else
+                tail.next = newNode;
+                tail = tail.next;
+            endif;
+            n = n - 1;
+        endwhile;
+
+        while(head != null) do
+            temp = exposcall("Write", -2, head.data);
+            head = head.next;
+        endwhile;
+        return 0;
+    end
+}
