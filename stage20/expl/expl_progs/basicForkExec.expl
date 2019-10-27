@@ -1,0 +1,22 @@
+int main()
+{
+    decl
+        int temp, childPID;
+    enddecl
+
+    begin
+
+        childPID = exposcall("Fork");
+        if(childPID == -1) then
+            temp = exposcall("Write", -2, "Fail");
+        else
+            if(childPID == 0) then
+                temp = exposcall("Exec", "odd_num.xsm");
+            else
+                temp = exposcall("Exec", "even_num.xsm");
+            endif;
+        endif;
+
+        return 0;
+    end
+}

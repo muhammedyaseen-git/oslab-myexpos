@@ -1,0 +1,124 @@
+alias funcNum R1;
+
+if(funcNum == 1) then                                           // Get Free Page function
+
+    [SYSTEM_STATUS_TABLE + 3] = [SYSTEM_STATUS_TABLE + 3] + 1;  // Increment WAIT_MEM_COUNT
+
+    while([SYSTEM_STATUS_TABLE + 2] == 0) do                    // Busy Loop
+
+        [PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1] * 16 + 4] = WAIT_MEM;    // Process is waiting for memory
+        multipush(R1);
+        call SCHEDULER;
+        multipop(R1);
+    
+    endwhile;
+
+    [SYSTEM_STATUS_TABLE + 3] = [SYSTEM_STATUS_TABLE + 3] - 1;  // Decrement WAIT_MEM_COUNT
+    [SYSTEM_STATUS_TABLE + 2] = [SYSTEM_STATUS_TABLE + 2] - 1;  // Decrement MEM_FREE_COUNT
+
+    alias i R2;
+    i = 76;                                                     // Memory pages allowed for user programs: 76 - 127
+
+    while(i <= 127) do                                          // Search the memory free list for a free page
+
+        if([MEMORY_FREE_LIST + i] == 0) then
+
+            [MEMORY_FREE_LIST + i] = 1;                         // Set corresponding memory free list entry to 1         
+            R0 = i;                                             // Store page number in R0
+            break;
+
+        endif;
+
+        i = i + 1;
+    
+    endwhile;
+    return;
+
+endif;
+
+if(funcNum == 2) then                                           // Release Page function
+
+    alias pageNum R2;
+
+    [MEMORY_FREE_LIST + pageNum] = [MEMORY_FREE_LIST + pageNum] - 1;    // Decrement corresponding entry in memory free list
+
+    if([MEMORY_FREE_LIST + pageNum] == 0) then
+        [SYSTEM_STATUS_TABLE + 2] = [SYSTEM_STATUS_TABLE + 2] + 1;      // If this page is no longer used, then increment the number of free pages
+    endif;
+
+    alias i R3;
+    i = 0;
+
+    while(i < MAX_PROC_NUM) do                                  // Update the states of all those processes which are in WAIT_MEM state
+
+        if([PROCESS_TABLE + i * 16 + 4] == WAIT_MEM) then
+            [PROCESS_TABLE + i * 16 + 4] = READY;
+        endif;
+        
+        i = i + 1;
+    endwhile;
+    return;                                                     // return to caller
+
+endif;
+
+if(funcNum == 4) then                                           // Release Block function
+
+    alias blockNum R2;                                          // Block Number argument
+    alias PID R3;                                               // PID argument
+
+    [DISK_FREE_LIST + blockNum] = [DISK_FREE_LIST + blockNum] - 1;      // Decrement the count in entry corresponding to blockNum in the disk free list
+    
+    return;                                                     // Return to caller
+
+endif;
+
+if(funcNum == 5) then                                           // Get Code Page function
+
+    alias blockNum R2;                                          // Block number of the code page to be loaded
+    alias retVal R0;
+    alias proc R3;
+    alias i R4;
+    alias pageNum R5;
+
+    proc = 0;
+
+    while(proc < MAX_PROC_NUM) do                               // Check if this block is already loaded into some memory page (of some process)
+        i = 0;
+        while(i < 4) do
+            if(([DISK_MAP_TABLE + 10 * proc + i + 4] == blockNum) && ([PAGE_TABLE_BASE + 20 * proc + 2 * i + 8] != -1)) then    // If block is present in some page of some process and it is not invalid
+
+                pageNum = i + 4;                                // Logical page number
+                pageNum = [PTBR + 2 * pageNum];                 // Physical page number
+
+                [MEMORY_FREE_LIST + pageNum] = [MEMORY_FREE_LIST + pageNum] + 1;  // Incrementing memory free list entry corresponding to this page
+                retVal = pageNum;                               // return value is the corresponding page
+                return;                                         // return to caller
+            endif;
+
+            i = i + 1;
+        endwhile;
+        proc = proc + 1;
+    endwhile;
+
+    // If the code page is not loaded into the memory yet, then 
+    // get a free page
+
+    multipush(R1, R2, R3, R4, R5);                              // Push all regs used
+    R1 = 1;                                                     // call Get Free Page
+    call MEMORY_MANAGER;                                        // call memory manager
+    multipop(R1, R2, R3, R4, R5);                               // Pop all regs used
+    pageNum = R0;                                               // Place returned page number into reg
+
+    R6 = pageNum;
+    R7 = blockNum;
+    multipush(R1, R2, R3, R4, R5);                              // Push all regs used
+    R1 = 2;                                                     // call Disk Load function
+    R2 = [SYSTEM_STATUS_TABLE + 1];                             // PID of current process
+    R3 = R6;                                                    // page number (where to load the block to)
+    R4 = R7;                                                    // block number (from where to load)
+    call DEVICE_MANAGER;
+    multipop(R1, R2, R3, R4, R5);
+
+    retVal = pageNum;                                           // Place page number into return register
+    return;                                                     // return to caller
+endif;
