@@ -1,0 +1,166 @@
+//Resource manager module (module 0)
+
+alias functionNum R1;
+alias currentProcess R2;
+
+
+if(functionNum == 3) then
+    //acquire disk function
+    while([DISK_STATUS_TABLE] == 1) do
+        [PROCESS_TABLE + currentProcess * 16 + 4] = WAIT_DISK;
+        multipush(R1, R2);
+        call MOD_5;
+        multipop(R1, R2);
+    endwhile;
+    //acquiring the disk by setting its state (to busy) and the PID of the current process
+    [DISK_STATUS_TABLE] = 1;
+    [DISK_STATUS_TABLE + 4] = currentProcess;
+    return;
+endif;
+
+
+if(functionNum == 4) then
+    //acquire inode function
+    alias inodeIndex R2;
+    alias curPID R3;
+    alias curProcT R4;
+    curProcT = PROCESS_TABLE + 16 * curPID;
+
+    //while the lock field is not -1 in the file status table corresponding to the inode index, wait
+    //in a busy loop
+    while([FILE_STATUS_TABLE + 4 * inodeIndex] != -1) do
+        [curProcT + 4] = WAIT_FILE;
+        [curProcT + 5] = inodeIndex;
+        multipush(R1, R2, R3, R4);
+        call MOD_5;                     //schedule somthing else
+        multipop(R1, R2, R3, R4);
+    endwhile;
+
+    //control reaches here only when the file is ready to be locked
+    //if the inode becomes invalid (by checking the inode table) before the lock was acquired return -1,some other proc may have deleted
+    if([INODE_TABLE + 16 * inodeIndex + 1] == -1) then
+        R0 = -1;
+        return;
+    endif;
+
+    //locking the inode
+    [FILE_STATUS_TABLE + 4 * inodeIndex] = curPID;
+
+    return;
+endif;
+
+
+if(functionNum == 5) then
+    //release inode function
+    alias inodeIndex R2;
+    alias curPID R3;
+
+    if(curPID != [FILE_STATUS_TABLE + 4 * inodeIndex]) then
+        //if the current PID does not matches with the locking PID return -1
+        R0 = -1;
+        return;
+    endif;
+
+    //freeing the lock
+    [FILE_STATUS_TABLE + 4 * inodeIndex] = -1;
+
+    //waking up all the processes that are waiting for the lock on the file
+    alias counter R4;
+    alias procT R5;
+
+    counter = 0;
+    while(counter < MAX_PROC_NUM) do
+        procT = PROCESS_TABLE + 16 * counter;
+        if([procT + 4] == WAIT_FILE && [procT + 5] == inodeIndex) then
+            [procT + 4] = READY;
+        endif;
+        counter = counter + 1;
+    endwhile;
+
+    //returning 0
+    R0 = 0;
+    return;
+endif;
+
+
+if(functionNum == 6) then
+    //acquire semaphore function
+    //it finds a free entry in the semaphore table (process_count field is 0) and sets the
+    //process_count field to 1 then it returns its index. If no free entry then returns -1
+
+    alias counter R3;
+    counter = 0;
+    while(counter < MAX_SEM_COUNT) do
+        if([SEMAPHORE_TABLE + counter * 4] == 0) then
+            //free semaphore is found
+            [SEMAPHORE_TABLE + counter * 4] = 1;
+            [SEMAPHORE_TABLE + counter * 4 + 1] = -1;   //setting locking PID of the semaphore to -1
+            R0 = counter;
+            return;
+        endif;
+        counter = counter + 1;
+    endwhile;
+
+    //all semaphores are already acquired so return -1
+    R0 = -1;
+    return;
+endif;
+
+
+if(functionNum == 7) then
+    //release semaphore function
+    alias curPID R3;
+    alias semaphoreEntry R2;
+    if([SEMAPHORE_TABLE + semaphoreEntry * 4  + 1] == curPID) then
+        //if current process has locked the semaphore, unlock it and wake up all the processes
+        //blocked by the semaphore
+        [SEMAPHORE_TABLE + semaphoreEntry * 4 + 1] = -1;
+        alias ctr R4;
+        ctr = 0;
+        while(ctr < MAX_PROC_NUM) do
+            if([PROCESS_TABLE + 16 * ctr + 4] == WAIT_SEMAPHORE &&
+                [PROCESS_TABLE + 16 * ctr + 5] == semaphoreEntry) then
+                    [PROCESS_TABLE + 16 * ctr + 4] = READY;
+            endif;
+            ctr = ctr + 1;
+        endwhile;
+    endif;
+
+    //decrease the count of the semaphore entry
+    [SEMAPHORE_TABLE + semaphoreEntry * 4] = [SEMAPHORE_TABLE + semaphoreEntry * 4] - 1;
+    return;
+endif;
+
+
+if(functionNum == 8) then
+    //acquire terminal function
+    while([TERMINAL_STATUS_TABLE] == 1) do
+        [PROCESS_TABLE + currentProcess * 16 + 4] = WAIT_TERMINAL;
+        multipush(R1, R2);
+        call MOD_5;
+        multipop(R1, R2);
+    endwhile;
+    [TERMINAL_STATUS_TABLE] = 1;
+    [TERMINAL_STATUS_TABLE + 1] = currentProcess;
+    return;
+endif;
+
+
+if(functionNum == 9) then
+    //release terminal function
+    if(currentProcess != [TERMINAL_STATUS_TABLE + 1]) then
+        R0 = -1;
+        return;
+    endif;
+    [TERMINAL_STATUS_TABLE] = 0;
+    R1 = 1;
+    while(R1 < MAX_PROC_NUM) do
+        if([PROCESS_TABLE + 16 * R1 + 4] == WAIT_TERMINAL) then
+            [PROCESS_TABLE + 16 * R1 + 4] = READY;
+        endif;
+        R1 = R1 + 1;
+    endwhile;
+    R0 = 0;
+    return;
+endif;
+

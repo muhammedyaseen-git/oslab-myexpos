@@ -1,0 +1,61 @@
+//shutdown syscall interrupt routine (int=15 and syscall 21)
+
+alias curPID R0;
+alias curProcT R1;
+alias curUser R2;
+curPID = [SYSTEM_STATUS_TABLE + 1];
+curProcT = PROCESS_TABLE + 16 * curPID;
+curUser = [curProcT + 3];
+
+//switching to kernel stack and set the MODE flag for the current process
+[curProcT + 13] = SP;
+[curProcT + 9] = 21;
+SP = [curProcT + 11] * 512 - 1;
+
+//shutdown system call can be invoked only from the shell process (pid 1) of the root user (userid 1)
+//if this is not so, switch to user stack, reset the mode flag and return -1
+
+if(curUser != 1 || curPID != 1) then
+    [curProcT + 9] = 0;
+    SP = [curProcT + 13];
+    [[PAGE_TABLE_BASE + 20 * curPID + 2 * (SP - 1) / 512] * 512 + (SP - 1) % 512] = -1;
+    ireturn;
+endif;
+
+//storing the changes made in the memory copy of inode table, root file, disk free list to the disk by calling
+//diskStore function (function 1) in the device manager module (module 4)
+
+multipush(R0, R1, R2);
+
+//Inode-user table (block 1)
+R1 = 1; //disk store function
+R2 = [SYSTEM_STATUS_TABLE + 1];
+R3 = 59;
+R4 = 3;
+call MOD_4; //device manager module
+
+//Inode-user table (block 2)
+R1 = 1;
+R2 = [SYSTEM_STATUS_TABLE + 1];
+R3 = 60;
+R4 = 4;
+call MOD_4;
+
+//Root file
+R1 = 1;
+R2 = [SYSTEM_STATUS_TABLE + 1];
+R3 = 62;
+R4 = 5;
+call MOD_4;
+
+//Disk Free list
+R1 = 1;
+R2 = [SYSTEM_STATUS_TABLE + 1];
+R3 = 61;
+R4 = 2;
+call MOD_4;
+
+multipop(R0, R1, R2);
+
+//halting the machine
+halt;

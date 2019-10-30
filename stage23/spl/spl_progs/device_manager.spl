@@ -1,0 +1,128 @@
+//Device manager module (module 4)
+
+alias functionNum R1;
+alias currentProcess R2;
+
+if(functionNum == 1) then
+    //function for Store Disk
+    alias memoryPage R3;
+    alias diskBlock R4;
+
+    //calling AcquireDisk (function 3) in the resource manager module (module 0)
+    multipush(R1, R2, R3, R4);
+    functionNum = 3;
+    call MOD_0;
+    multipop(R1, R2, R3, R4);
+
+    //setting the entries of the disk status table (status and PID is already set by AcquireDisk)
+    [DISK_STATUS_TABLE + 1] = 1;            // load / store
+    [DISK_STATUS_TABLE + 2] = memoryPage;   // page number
+    [DISK_STATUS_TABLE + 3] = diskBlock;    // disk block
+
+    //issuing load instruction
+    store(memoryPage, diskBlock);
+
+    //setting the state of the current process as WAIT_DISK and calling the scheduler
+    [PROCESS_TABLE + 16 * currentProcess + 4] = WAIT_DISK;
+    call MOD_5;
+    return;
+
+endif;
+
+
+if(functionNum == 2) then
+    //function for Load Disk
+    alias memoryPage R3;
+    alias diskBlock R4;
+
+    //calling AcquireDisk (function 3) in the resource manager module (module 0)
+    multipush(R1, R2, R3, R4);
+    functionNum = 3;
+    call MOD_0;
+    multipop(R1, R2, R3, R4);
+
+    //setting the entries of the disk status table (status and PID is already set by AcquireDisk)
+    [DISK_STATUS_TABLE + 1] = 0;            // load / store
+    [DISK_STATUS_TABLE + 2] = memoryPage;   // page number
+    [DISK_STATUS_TABLE + 3] = diskBlock;    // disk block
+
+    //issuing load instruction
+    load(memoryPage, diskBlock);
+
+    //setting the state of the current process as WAIT_DISK and calling the scheduler
+    [PROCESS_TABLE + 16 * currentProcess + 4] = WAIT_DISK;
+    call MOD_5;
+    return;
+endif;
+
+
+if(functionNum == 3) then
+    //function for Terminal Write
+    alias toWrite R3;
+
+    //saving the context of the registers to call AcquireTerminal (function 8) of resource manager module (module 0)
+    multipush(R1, R2, R3);
+    functionNum = 8;
+
+    //calling AcquireTerminal
+    call MOD_0;
+    //AcquireTerminal has no return value, so we will ignore it
+
+    //control will reach here only if the terminal is acquired
+    //restore the context and print the word
+    multipop(R1, R2, R3);
+    print toWrite;
+
+    //now the terminal must be released, so again save the context to call ReleaseTerminal
+    multipush(R1, R2, R3);
+    functionNum = 9;
+    call MOD_0;
+
+    //store the return value if needed for future reference and restore the context
+    R4 = R0;
+    multipop(R1, R2, R3);
+    return;
+endif;
+
+
+if(functionNum == 4) then
+    //function for Terminal Read
+    alias toRead R3;
+
+    //saving the context of the registers to call AcquireTerminal (function 8) in the resource manager module (module 0)
+    multipush(R1, R2, R3);
+    functionNum = 8;
+
+    //calling AcquireTerminal, it has no return value so will ignore it
+    call MOD_0;
+
+
+    //control reaches here only after the terminal has been acquired
+    //restoring the registers and issue read command
+    multipop(R1, R2, R3);
+    read;
+
+    //changing the state of the current process
+    [PROCESS_TABLE + 16 * currentProcess + 4] = WAIT_TERMINAL;
+
+    //storing the registers used and calling the scheduler (module 5)
+    multipush(R1, R2, R3);
+    call MOD_5;
+
+    //the following will be executed after the read is complete, console interrupt gets executed and the process is
+    //scheduled again
+
+    //restoring the registers
+    multipop(R1, R2, R3);
+    //finding the physical address corresponding to the logical address where the value read is to be stored
+    alias phyToRead R4;
+    phyToRead = [PAGE_TABLE_BASE + currentProcess * 20 + 2 * toRead / 512] * 512 + toRead % 512;
+
+    //storing the value read to the above address from the buffer field in the process table of the process
+    //the buffer is in field 8 of the process table
+    [phyToRead] = [PROCESS_TABLE + 16 * currentProcess + 8];
+
+    //returning to the caller
+    return;
+endif;
+

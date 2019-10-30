@@ -1,0 +1,56 @@
+int main() {
+
+    decl
+        int ignore, ret, permission;
+        str out, filename, command;
+    enddecl
+
+    begin
+        while(1 == 1) do
+            out = "Command";
+            ignore = exposcall("Write", -2, out);
+            ignore = exposcall("Read", -1, command);
+            if(command == "Create") then
+                out = "Filename";
+                ignore = exposcall("Write", -2, out);
+                ignore = exposcall("Read", -1, filename);
+                out = "Permission";
+                ignore = exposcall("Write", -2, out);
+                ignore = exposcall("Read", -1, permission);
+                ret = exposcall("Create", filename, permission);
+                if(ret == 0) then
+                    out = "Success";
+                else
+                    out = "Failed";
+                endif;
+                ignore = exposcall("Write", -2, out);
+                continue;
+            endif;
+            if(command == "Delete") then
+                out = "Filename";
+                ignore = exposcall("Write", -2, out);
+                ignore = exposcall("Read", -1, filename);
+                ret = exposcall("Delete", filename);
+                if(ret == 0) then
+                    out = "Success";
+                else
+                    if(ret == -1) then
+                        out = "PermDeny";
+                    else
+                        out = "FileOpened";
+                    endif;
+                endif;
+                ignore = exposcall("Write", -2, out);
+                continue;
+            endif;
+            if(command == "Shutdown") then
+                out = "SHUTDOWN";
+                ignore = exposcall("Shutdown");
+                continue;
+            endif;
+            out = "IllegalCom";
+            ignore = exposcall("Write", -2, out);
+        endwhile;
+        return 0;
+    end
+}

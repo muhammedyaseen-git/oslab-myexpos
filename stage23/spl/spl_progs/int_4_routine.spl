@@ -1,0 +1,229 @@
+//interrupt routine 4 - (Create (sycall 1), Delete (syscall 4))
+
+alias curPID R0;
+alias curUser R1;
+alias curProcT R2;
+alias curPT R3;
+alias resTable R4;
+alias userSP R5;
+alias counter R14;
+alias returnValue R6;
+
+curPID = [SYSTEM_STATUS_TABLE + 1];
+curProcT = PROCESS_TABLE + 16 * curPID;
+curUser = [curProcT + 3];
+curPT = PAGE_TABLE_BASE + 20 * curPID;
+resTable = ([curProcT + 11]  + 1) * 512 - 16;
+userSP = SP;
+returnValue = [curPT + 2 * (userSP - 1) / 512] * 512 + (userSP - 1) % 512;
+
+
+//switching to kernel stack
+[curProcT + 13] = SP;
+SP = [curProcT + 11] * 512 - 1;
+
+
+alias syscall R7;
+syscall = [[curPT + 2 * (userSP - 5) / 512] * 512 + (userSP - 5) % 512];
+
+
+if(syscall == 1) then
+    //Create syscall (syscall number 1)
+    //Arguments - FileName, permission (0 - exclusive, 1 - open)
+    //return value - 0 (success/file already exists), -1 (no free inode table entry)
+
+    [curProcT + 9] = 1;             //setting the MODE flag
+
+    alias filename R8;
+    alias permission R9;
+    alias inodeEntry R10;
+    alias rootEntry R11;
+    filename = [[curPT + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+    permission = [[curPT + 2 * (userSP - 3) / 512] * 512 + (userSP - 3) % 512];
+
+    //check if the file is already present, and also find a free entry in the inode table
+    counter = 0;
+    inodeEntry = -1;
+    while(counter < MAX_FILE_NUM) do
+        if([INODE_TABLE + 16 * counter + 1] == filename) then
+            //the file is already present, switch to user stack and return 0
+            [returnValue] = 0;
+            [curProcT + 9] = 0;
+            SP = [curProcT + 13];
+            ireturn;
+        endif;
+        if([INODE_TABLE + 16 * counter + 1] == -1) then
+            inodeEntry = INODE_TABLE + 16 * counter;
+            rootEntry = ROOT_FILE + 8 * counter;
+        endif;
+        counter = counter + 1;
+    endwhile;
+
+    if(inodeEntry == -1) then
+        //no free entry is present in the inode table. So, return -1
+        [returnValue] = -1;
+        [curProcT + 9] = 0;
+        SP = [curProcT + 13];
+        ireturn;
+    endif;
+
+    //now the file is not already present in the inode table and a free entry has also been found
+    //for its creation
+
+    //updating the inode table
+    [inodeEntry] = DATA;                //filetype
+    [inodeEntry + 1] = filename;        //filename
+    [inodeEntry + 2] = 0;               //filesize
+    [inodeEntry + 3] = curUser;         //UserID
+    [inodeEntry + 4] = permission;      //permission
+    [inodeEntry + 8] = -1;              //block0
+    [inodeEntry + 9] = -1;              //block1
+    [inodeEntry + 10] = -1;             //block2
+    [inodeEntry + 11] = -1;             //block3
+
+    //updating the rootfile
+    [rootEntry] = filename;             //filename
+    [rootEntry + 1] = 0;                //filesize
+    [rootEntry + 2] = DATA;             //filetype
+    [rootEntry + 3] = [USER_TABLE + 2 * curUser];       //username
+    [rootEntry + 4] = permission;       //permission
+
+
+    //setting the return value (0), restoring the MODE flag and switching to user stack
+    [returnValue] = 0;
+    [curProcT + 9] = 0;
+    SP = [curProcT + 13];
+    ireturn;
+endif;
+
+
+if(syscall == 4) then
+    //Delete syscall (syscall number 4)
+    //Arguments - FileName
+    //return value - 0 (success/file not exists), -1 (permission denied), -2 (file is opened)
+
+    [curProcT + 9] = 4; //mode flag to syscall number
+
+    alias filename R8;
+    filename = [[curPT + 2 * (userSP - 4) / 512] * 512 + (userSP - 4) % 512];
+
+    //search for the file in the inode table
+    counter = 0;
+    while(counter < MAX_FILE_NUM) do
+        if([INODE_TABLE + 16 * counter + 1] == filename) then
+            break;
+        endif;
+        counter = counter + 1;
+    endwhile;
+
+    //if the file is not present return 0
+    if(counter == MAX_FILE_NUM) then
+        [returnValue] = 0;
+        [curProcT + 9] = 0;
+        SP = [curProcT + 13];
+        ireturn;
+    endif;
+
+    alias inodeEntry R9;
+    alias inodeIndex R10;
+    inodeEntry = INODE_TABLE + 16 * counter;
+    inodeIndex = counter;
+
+    //if the file is not data file return -1
+    if([inodeEntry] != DATA) then
+        [returnValue] = -1;
+        [curProcT + 9] = 0;
+        SP = [curProcT + 13];
+        ireturn;
+    endif;
+
+    //if the file permission is set to exclusive and current user is not the owner or root return -1
+    if([inodeEntry + 4] == 0 && curUser != [inodeEntry + 3] && curUser!=1) then
+        [returnValue] = -1;
+        [curProcT + 9] = 0;
+        SP = [curProcT + 13];
+        ireturn;
+    endif;
+
+    //Acquiring a lock on the file by calling AcquireInode function (4) in the resource manager module (0)
+    multipush(R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10);
+    R1 = 4;
+    R2 = inodeIndex;       //inode index of the file
+    R3 = curPID;
+    call MOD_0;            //resource manager module
+    multipop(R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10);
+
+    //check if the file open count is -1 in the file status table, if not so release lock by calling
+    //ReleaseInode function (5) in the resource manager module (0) and then return -2
+    if([FILE_STATUS_TABLE + 4 * inodeIndex + 1] != -1) then
+
+        multipush(R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10);
+        R1 = 5;
+        R2 = inodeIndex;       //inode index of the file
+        R3 = curPID;
+        call MOD_0;
+        multipop(R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10);
+
+        [returnValue] = -2;
+        [curProcT + 9] = 0;
+        SP = [curProcT + 13];
+        ireturn;
+    endif;
+
+    counter = 0;
+    while(counter < 4) do
+        //for each block corresponding to the file, if the file is loaded into a buffer and its dirty
+        //bit is set, reset it and then call release block function (4) in the memory manager module (2)
+        //to release the blocks
+        alias diskBlock R11;
+        diskBlock = [inodeEntry + 8 + counter];
+        if(diskBlock == -1) then
+            counter = counter + 1;
+            continue;
+        endif;
+        
+        // Buffer_number = Disk_block_number % MAX_BUFFER
+        // MAX_BUFFER = 4
+        if([BUFFER_TABLE + 4 * (diskBlock % 4)] == diskBlock) then
+            [BUFFER_TABLE + 4 * (diskBlock % 4) + 1] = 0;   //unset dirty bit
+        endif;
+
+        multipush(R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11);
+        R1 = 4;
+        R2 = curPID;
+        R3 = diskBlock;
+        call MOD_2;
+        multipop(R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11);
+
+        counter = counter + 1;
+    endwhile;
+
+    //invalidating the inode table entries of the file
+    counter = 0;
+    while(counter < 16) do
+        [inodeEntry + counter] = -1;
+        counter = counter + 1;
+    endwhile;
+
+    //updating the root file entry of the file
+    counter = 0;
+    while(counter < 8) do
+        [ROOT_FILE + 8 * inodeIndex + counter] = -1;
+        counter = counter + 1;
+    endwhile;
+
+    //releasing the lock on the file by calling the releaseInode function (5) in the resource manager module (0)
+    multipush(R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11);
+    R1 = 5;
+    R2 = inodeIndex;
+    R3 = curPID;
+    call MOD_0;
+    multipop(R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11);
+
+    //change the fileMode, store the return value and switch to user stack
+    [returnValue] = 0;
+    [curProcT + 9] = 0;
+    SP = [curProcT + 13];
+    ireturn;
+endif;
+

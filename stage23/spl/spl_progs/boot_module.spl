@@ -1,0 +1,227 @@
+//boot module (module 7)
+
+//loading the INIT program
+loadi(65, 7);
+loadi(66, 8);
+
+//loading INT=4 (open, delete) routine
+loadi(10, 23);
+loadi(11, 24);
+
+//loading INT=6 (read) routine
+loadi(14, 27);
+loadi(15, 28);
+
+//loading INT=7 (print) routine
+loadi(16, 29);
+loadi(17, 30);
+
+//loading INT=8 (fork) routine
+loadi(18, 31);
+loadi(19, 32);
+
+//loading INT=9 (exec) routine
+loadi(20, 33);
+loadi(21, 34);
+
+//loading INT=10 (exit) routine
+loadi(22, 35);
+loadi(23, 36);
+
+//loading INT=11 (wait, signal, getpid, getppid) routine
+loadi(24, 37);
+loadi(25, 38);
+
+//loading INT=13 (semget and semrelease syscalls) routine
+loadi(28, 41);
+loadi(29, 42);
+
+//loading INT=14 (semlock and semunlock syscalls) routine
+loadi(30, 43);
+loadi(31, 44);
+
+//loading INT=15 (shutdown) routine
+loadi(32, 45);
+loadi(33, 46);
+
+//loading exception handler
+loadi(2, 15);
+loadi(3, 16);
+
+//loading the timer interrupt handler
+loadi(4, 17);
+loadi(5, 18);
+
+//loading the disk interrupt handler
+loadi(6, 19);
+loadi(7, 20);
+
+//loading the console interrupt handler
+loadi(8, 21);
+loadi(9, 22);
+
+//loading the library
+loadi(63, 13);
+loadi(64, 14);
+
+//loading the resource manager module (module 0)
+loadi(40, 53);
+loadi(41, 54);
+
+//loading the process manager module (module 1)
+loadi(42, 55);
+loadi(43, 56);
+
+//loading the memory manager module (module 2)
+loadi(44, 57);
+loadi(45, 58);
+
+//loading the device manager module (module 4)
+loadi(48, 61);
+loadi(49, 62);
+
+//loading the scheduler module (module 5)
+loadi(50,63);
+loadi(51,64);
+
+//loading the inode user table
+loadi(59, 3);
+loadi(60, 4);
+
+//loading the root file
+loadi(62, 5);
+
+//loading disk free list
+loadi(61, 2);
+
+//Setting the Page Table for the INIT program (here pid = 1)
+
+//Library
+[PAGE_TABLE_BASE+20] = 63;
+[PAGE_TABLE_BASE+21] = "0100";
+[PAGE_TABLE_BASE+22] = 64;
+[PAGE_TABLE_BASE+23] = "0100";
+
+//Heap
+[PAGE_TABLE_BASE+24] = 78;
+[PAGE_TABLE_BASE+25] = "0110";
+[PAGE_TABLE_BASE+26] = 79;
+[PAGE_TABLE_BASE+27] = "0110";
+
+//Code
+[PAGE_TABLE_BASE+28] = 65;
+[PAGE_TABLE_BASE+29] = "0100";
+[PAGE_TABLE_BASE+30] = 66;
+[PAGE_TABLE_BASE+31] = "0100";
+[PAGE_TABLE_BASE+32] = -1;
+[PAGE_TABLE_BASE+33] = "0000";
+[PAGE_TABLE_BASE+34] = -1;
+[PAGE_TABLE_BASE+35] = "0000";
+
+//Stack
+[PAGE_TABLE_BASE+36] = 76;
+[PAGE_TABLE_BASE+37] = "0110";
+[PAGE_TABLE_BASE+38] = 77;
+[PAGE_TABLE_BASE+39] = "0110";
+
+//Storing the IP in the top of the user stack
+[76 * 512] = [65 * 512 + 1];
+
+
+
+//Setting the process table for the init program
+[PROCESS_TABLE + 17] = 1;
+[PROCESS_TABLE + 18] = -1;
+[PROCESS_TABLE + 19] = 1;
+[PROCESS_TABLE + 20] = CREATED;
+[PROCESS_TABLE + 27] = 80;
+[PROCESS_TABLE + 28] = 0;
+[PROCESS_TABLE + 29] = 8 * 512;
+[PROCESS_TABLE + 30] = PAGE_TABLE_BASE + 20;
+[PROCESS_TABLE + 31] = 10;
+
+
+//initialising the per process resource table for the init process
+alias ctr R0;
+alias initResourceTable R1;
+initResourceTable = 81 * 512 - 16;
+ctr = 0;
+while(ctr < 16) do
+    [initResourceTable] = -1;
+    ctr = ctr + 1;
+    initResourceTable = initResourceTable + 1;
+endwhile;
+
+//setting the diskmap table for the INIT program
+[DISK_MAP_TABLE + 10] = -1;     //user area page
+[DISK_MAP_TABLE + 11] = -1;
+[DISK_MAP_TABLE + 12] = -1;     //heap
+[DISK_MAP_TABLE + 13] = -1;     //heap
+[DISK_MAP_TABLE + 14] = 7;      //code
+[DISK_MAP_TABLE + 15] = 8;      //code
+[DISK_MAP_TABLE + 16] = -1;
+[DISK_MAP_TABLE + 17] = -1;
+[DISK_MAP_TABLE + 18] = -1;     //stack
+[DISK_MAP_TABLE + 19] = -1;     //stack
+
+
+//setting the process state of all the other processes in the process table to "TERMINATED"
+ctr = 2;
+while(ctr < MAX_PROC_NUM) do
+    [PROCESS_TABLE + ctr * 16 + 4] = TERMINATED;
+    ctr = ctr + 1;
+endwhile;
+
+//setting the state of the terminal acquisition in terminal status table
+[TERMINAL_STATUS_TABLE] = 0;
+
+//setting the state of the disk acquisition in disk status table
+[DISK_STATUS_TABLE] = 0;
+
+//Initialising WAIT_MEM_COUNT (to 0), memory free list and also MEM_FREE_COUNT
+[SYSTEM_STATUS_TABLE + 3] = 0;
+
+ctr = 0;
+while(ctr <= 80) do
+    [MEMORY_FREE_LIST + ctr] = 1;
+    ctr = ctr + 1;
+endwhile;
+
+while(ctr < 128) do
+    [MEMORY_FREE_LIST + ctr] = 0;
+    ctr = ctr + 1;
+endwhile;
+
+[SYSTEM_STATUS_TABLE + 2] = 47;
+
+
+//initialising the semaphore table by initialising the count field to 0 and locking PID field to -1
+//for each entry
+ctr = 0;
+while(ctr < MAX_SEM_COUNT) do
+    [SEMAPHORE_TABLE + ctr * 4] = 0;
+    [SEMAPHORE_TABLE + ctr * 4 + 1] = -1;
+    ctr = ctr + 1;
+endwhile;
+
+
+//initialising the file status table by setting the LockingPID and OpenFileCount to -1 for all entries
+ctr = 0;
+while(ctr < 4 * MAX_FILE_NUM) do
+    [FILE_STATUS_TABLE + ctr] = -1;
+    ctr = ctr + 1;
+endwhile;
+
+
+//initialisng BufferTable by setting BlockNumber and LockingPID fields to -1 and DirtyBit to 0
+ctr = 0;
+while(ctr < 4) do
+    [BUFFER_TABLE + 4 * ctr] = -1;          //BlockNumber
+    [BUFFER_TABLE + 4 * ctr + 1] = 0;       //DirtyBit
+    [BUFFER_TABLE + 4 * ctr + 2] = -1;      //LockingPID
+    [BUFFER_TABLE + 4 * ctr + 3] = -1;      //Unused
+    ctr = ctr + 1;
+endwhile;
+
+
+return;

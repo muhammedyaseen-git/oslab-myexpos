@@ -1,0 +1,87 @@
+alias userSP R0;
+alias syscallNo R1;
+
+userSP = SP;                                                            // Get User SP
+syscallNo = [[PTBR + 2 * ((userSP - 5) / 512)] * 512 + ((userSP - 5) % 512)];   // Get System Call Number
+
+[PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13] = SP;             // Save User SP into the process table
+SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 11] * 512 - 1;   // Switch to Kernel Stack
+
+if(syscallNo == 11) then    // Get PID
+
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 11;          // Set mode flag to system call number
+
+    [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + ((userSP - 1) % 512)] = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 1];   // Place current PID as the return value into the stack
+    SP = userSP;                                                        // Set SP to user SP
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;           // Set mode flag to 0 to indicate user mode
+    ireturn;
+
+endif;
+
+if(syscallNo == 12) then    // Get PPid
+
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 12;          // Set mode flag to system call number
+
+    [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + ((userSP - 1) % 512)] = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 2];   // Place parent PID (i.e PPID) as the return value into the stack
+    SP = userSP;                                                        // Set SP to user SP
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;           // Set mode flag to 0 to indicate user mode
+    ireturn;
+
+endif;
+
+if(syscallNo == 13) then    // Wait
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 13;          // Set mode flag to system call number
+
+    alias procPID R2;
+    procPID = [[PTBR + 2 * ((userSP - 4) / 512)] * 512 + ((userSP - 4) % 512)]; // Get PID of the process for which to wait
+
+    if(procPID < 1 || procPID >= MAX_PROC_NUM) then                     // If PID is not in the valid range, then return -1 
+        [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + ((userSP - 1) % 512)] = -1;  // Set return value to -1
+        SP = userSP;                                                    // Set SP to user SP
+        [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;       // Set mode flag to 0 to indicate user mode
+        ireturn;                                                        // return to user mode
+    endif;
+
+    if(procPID == [SYSTEM_STATUS_TABLE + 1] || [PROCESS_TABLE + 16 * procPID + 4] == TERMINATED) then   // If Process is trying to wait for itself,
+        [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + ((userSP - 1) % 512)] = -1;                                  // or it is trying to wait for a terminated process,
+        SP = userSP;                                                                                    // then return -1
+        [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;       // Set mode flag to 0 to indicate user mode
+        ireturn;
+    endif;
+
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 4] = WAIT_PROCESS;// Change the state of the process to (WAIT_PROCESS, process PID)
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 5] = procPID;     // The second element of the tuple - process PID
+
+    multipush(R0, R1, R2);                                              // Push all regs used
+    call SCHEDULER;                                                     // Call Scheduler to schedule another process
+    multipop(R0, R1, R2);                                               // Pop all regs used
+
+    [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + ((userSP - 1) % 512)] = 0;       // Place 0 as the return value into the stack
+    SP = userSP;                                                        // Set SP to user SP
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;           // Set mode flag to 0 to indicate user mode
+    ireturn;                                                            // return to user mode
+
+endif;
+
+if(syscallNo == 14) then    // Signal
+
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 14;          // Set mode flag to system call number
+
+    alias i R2;
+    i = 1;
+
+    while(i < MAX_PROC_NUM) do                                          // Loop over all process to find out all the processes waiting for current process
+
+        if([PROCESS_TABLE + 16 * i + 4] == WAIT_PROCESS && 
+            [PROCESS_TABLE + 16 * i + 5] == [SYSTEM_STATUS_TABLE + 1]) then // If there is any process waiting for current process, make it READY
+            [PROCESS_TABLE + 16 * i + 4] = READY;
+        endif;
+        i = i + 1;
+    endwhile;
+
+    [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + ((userSP - 1) % 512)] = 0;       // Place 0 as the return value into the stack
+    SP = userSP;                                                        // Set SP to user SP
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;           // Set mode flag to 0 to indicate user mode
+    ireturn;                                                            // return to user mode
+
+endif;

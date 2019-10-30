@@ -1,0 +1,28 @@
+fdisk
+load --os ../spl/spl_progs/os_startup.xsm
+load --int=10 ../spl/spl_progs/int_10_routine.xsm
+load --exhandler ../spl/spl_progs/exception_handler.xsm
+load --library ../expl/library.lib
+load --idle ../expl/samples/idle.xsm
+load --int=timer ../spl/spl_progs/timer_int.xsm
+load --int=8 ../spl/spl_progs/int_8_routine.xsm
+load --int=7 ../spl/spl_progs/int_7_routine.xsm
+load --int=6 ../spl/spl_progs/int_6_routine.xsm
+load --int=console ../spl/spl_progs/console_int.xsm
+load --int=disk  ../spl/spl_progs/disk_int.xsm
+load --module 7 ../spl/spl_progs/boot_module.xsm
+load --init ../expl/expl_progs/shell.xsm
+load --module 5 ../spl/spl_progs/scheduler_module.xsm
+load --module 0 ../spl/spl_progs/resource_manager.xsm
+load --module 4 ../spl/spl_progs/device_manager.xsm
+load --module 1 ../spl/spl_progs/process_manager.xsm
+load --module 2 ../spl/spl_progs/memory_manager.xsm
+load --int=9 ../spl/spl_progs/int_9_routine.xsm
+load --int=15 ../spl/spl_progs/int_15_routine.xsm
+load --int=11 ../spl/spl_progs/int_11_routine.xsm
+load --exec ../expl/expl_progs/pid.xsm
+load --exec ../expl/expl_progs/triFork.xsm
+load --exec ../expl/expl_progs/ass1.xsm
+load --int=13 ../spl/spl_progs/int_13_routine.xsm
+load --int=14 ../spl/spl_progs/int_14_routine.xsm
+load --int=4 ../spl/spl_progs/int_4_routine.xsm

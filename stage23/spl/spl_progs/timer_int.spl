@@ -1,0 +1,23 @@
+[PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13] = SP;           // Save user stack pointer
+SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 11] * 512 - 1; // Initialize kernel stack pointer
+
+backup;                                                               // backup register context
+[PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 4] = READY;         // Set current process state to READY
+
+alias i R0;
+i = 0;
+while(i < MAX_PROC_NUM) do                                            // Loop over each process and increment tick
+    if([PROCESS_TABLE + 16 * i + 4] != TERMINATED) then               // the field in the process table
+        [PROCESS_TABLE + 16 * i + 0] = [PROCESS_TABLE + 16 * i + 0] + 1;
+    endif;
+    i = i + 1;
+endwhile;
+
+
+call SCHEDULER;                                                       // Call Scheduler
+
+restore;                                                              // Restore register context
+SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];           // Set SP to the top of user stack
+[PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;             // Set mode flag to 0
+
+ireturn;

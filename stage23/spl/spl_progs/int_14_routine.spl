@@ -1,0 +1,119 @@
+alias userSP R0;
+alias syscallNo R1;
+
+userSP = SP;                                                                    // Stores the user SP
+syscallNo = [[PTBR + 2 * ((userSP - 5) / 512)] * 512 + ((userSP - 5) % 512)];   // Stores the system call number
+
+[PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13] = SP;                     // Place the user SP into the process table
+SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 11] * 512 - 1;           // Switch to kernel stack
+
+if(syscallNo == 19) then                                                        // Function to lock the Semaphore
+
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 19;                  // Set mode flag to system call number
+
+    alias semid R2;                                                             // Semaphore Descriptor (semid)
+
+    if(semid < 0 || semid >= 8) then                                            // If semid is not valid, then do as follows
+
+        [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + ((userSP - 1) % 512)] = -1;  // Place -1 as return value onto the user stack
+        [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;               // Set 0 as mode flag to indicate user mode
+        SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];             // Switch to user SP
+        ireturn;                                                                // return to user mode
+
+    endif;
+
+    alias uArea R3;
+    uArea = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 11] * 512;        // Get User Area Page starting address
+
+    if([uArea + 2 * semid + 496] != SEMAPHORE) then                             // If value in Resource Identifier field is not 1 (constant - SEMAPHORE)
+
+        [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + ((userSP - 1) % 512)] = -1;  // Place -1 as return value onto the user stack
+        [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;               // Set 0 as mode flag to indicate user mode
+        SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];             // Switch to user SP
+        ireturn;                                                                // return to user mode
+    
+    endif;
+
+    alias semTableIdx R4;
+    semTableIdx = [uArea + 2 * semid + 496 + 1];                                // Get Sem Table Index
+
+    while([SEMAPHORE_TABLE + 4 * semTableIdx] != [SYSTEM_STATUS_TABLE + 1]) do  // If Semaphore is locked by some other process, then do as follows
+
+        [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 4] = WAIT_SEMAPHORE;  // Set the state to (WAIT_SEMAPHORE, sem table index)
+        [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 5] = semTableIdx;     // and go into a busy wait for Semaphoreto be unlocked
+        
+        multipush(R0, R1, R2, R3, R4);                                          // Push all regs used
+        call SCHEDULER;                                                         // Call the Scheduler
+        multipop(R0, R1, R2, R3, R4);                                           // Pop all regs used
+
+    endwhile;
+
+    [SEMAPHORE_TABLE + 4 * semTableIdx] = [SYSTEM_STATUS_TABLE + 1];            // Set locking PID to current PID
+
+    [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + ((userSP - 1) % 512)] = 0;       // Place 0 as return value onto the user stack (to indicate success)
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;                   // Set 0 as mode flag to indicate user mode
+    SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];                 // Switch to user SP
+    ireturn;                                                                    // return to user mode
+
+endif;
+
+if(syscallNo == 20) then                                                        // Function to Unlock the Semaphore
+
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 20;                  // Set mode flag to system call number
+    alias semid R2;                                                             // Semaphore Descriptor (semid)
+
+    if(semid < 0 || semid >= 8) then                                            // If semid is not valid, then do as follows
+
+        [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + ((userSP - 1) % 512)] = -1;  // Place -1 as return value onto the user stack
+        [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;               // Set 0 as mode flag to indicate user mode
+        SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];             // Switch to user SP
+        ireturn;                                                                // return to user mode
+
+    endif;
+
+    alias uArea R3;
+    uArea = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 11] * 512;        // Get User Area Page starting address
+
+    if([uArea + 2 * semid + 496] != SEMAPHORE) then                             // If value in Resource Identifier field is not 1 (constant - SEMAPHORE)
+
+        [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + ((userSP - 1) % 512)] = -1;  // Place -1 as return value onto the user stack
+        [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;               // Set 0 as mode flag to indicate user mode
+        SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];             // Switch to user SP
+        ireturn;                                                                // return to user mode
+    
+    endif;
+
+    alias semTableIdx R4;
+    semTableIdx = [uArea + 2 * semid + 496 + 1];                                // Get Sem Table Index
+
+    if([SEMAPHORE_TABLE + 4 * semTableIdx] != -1) then                          // If semaphore is locked, then do as follows
+
+        if([SEMAPHORE_TABLE + 4 * semTableIdx] != [SYSTEM_STATUS_TABLE + 1]) then   // If semaphore is not locked by current process, we do as follows
+
+            [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + ((userSP - 1) % 512)] = -2;  // Place -2 as return value onto the user stack
+            [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;               // Set 0 as mode flag to indicate user mode
+            SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];             // Switch to user SP
+            ireturn;                                                                // return to user mode
+
+        endif;
+
+        [SEMAPHORE_TABLE + 4 * semTableIdx] = -1;                               // Unlock a semaphore
+
+        alias i R5;                                                             // Loop counter
+        i = 1;
+        while(i < MAX_PROC_NUM) do                                              // Loop over all process to make all those processes READY
+
+            if([PROCESS_TABLE + 16 * i + 4] == WAIT_SEMAPHORE &&
+                [PROCESS_TABLE + 16 * i + 5] == semTableIdx) then               // If a process is waiting for the Semaphore indexed by 'semTableIndex', then make it READY
+                [PROCESS_TABLE + 16 * i + 4] = READY;
+            endif;
+            i = i + 1;
+        endwhile;
+    endif;
+
+    [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + ((userSP - 1) % 512)] = 0;       // Place 0 as return value onto the user stack to indicate success
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;                   // Set 0 as mode flag to indicate user mode
+    SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];                 // Switch to user SP
+    ireturn;   
+
+endif;

@@ -1,0 +1,108 @@
+alias userSP R0;
+alias syscallNo R1;
+
+userSP = SP;                                                                // Place user SP value in R0
+syscallNo = [[PTBR + 2 * ((userSP - 5) / 512)] * 512 + (userSP - 5) % 512]; // Get system call number from stack
+
+[PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13] = SP;                 // Store user SP into the process table
+SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 11] * 512 - 1;       // Switch to kernel stack
+
+if(syscallNo == 17) then                // Sem Get System Call
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 17;              // Set mode flag to syscall no
+
+    alias uArea R2;
+    alias i R3;
+
+    uArea = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 11] * 512;    // Store user area page starting address
+    i = 0;
+    while(i < 8) do                                                         // Search for a free entry in the resource table
+        if([uArea + 2 * i + 496] == -1) then                                // If an entry is empty, then break
+            break;
+        endif;
+        i = i + 1;
+    endwhile;
+
+    if(i == 8) then                                                         // No free entry found in the resource table
+        
+        [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + (userSP - 1) % 512] = -1;// Place -1 as the return value onto the user stack (to indicate that the resource table is full)
+        [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;           // Set mode flag to 0 to indicate user mode
+        SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];         // Switch to user SP
+        ireturn;                                                            // return to user mode
+
+    endif;
+
+    [uArea + 2 * i + 496] = SEMAPHORE;  // Resource identifier field is set to 1 (SEMAPHORE constant) to indicate that the resource is a semaphore
+
+    alias semTableIdx R4;
+
+    multipush(R0, R1, R2, R3);          // Push all regs used
+    R1 = 6;                             // Function number of Acquire Semaphore
+    R2 = [SYSTEM_STATUS_TABLE + 1];     // Place the PID as the second argument
+    call RESOURCE_MANAGER;              // Call the Resource Manager
+    semTableIdx = R0;                   // Get Semaphore Table Index
+    multipop(R0, R1, R2, R3);           // Pop all regs used
+
+    if(semTableIdx == -1) then          // If there are no free semaphores
+
+        [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + (userSP - 1) % 512] = -2;// Place -2 as the return value onto the user stack (to indicate absence of free semaphores)
+        [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;           // Set mode flag to 0 to indicate user mode
+        SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];         // Switch to user SP
+        ireturn;                                                            // return to user mode
+
+    endif;
+
+    [uArea + i + 1] = semTableIdx;      // Store the semaphore table index into the resource table entry which we found to be free
+
+
+    [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + (userSP - 1) % 512] = i;     // Store the per - process resource table entry index corresponding to the semaphore just acquired (semid)
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;               // Set mode flag to 0 to indicate user mode
+    SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];             // Switch to user SP
+    ireturn;                                                                // return to user mode
+
+endif;
+
+
+if(syscallNo == 18) then                // Sem Release System Call
+
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 18;
+    alias semid R2;
+    semid = [[PTBR + 2 * ((userSP - 4) / 512)] * 512 + (userSP - 4) % 512];
+
+    if(semid < 0 || semid >= 8) then                                        // If semaphore id is not valid, then return -1
+        
+        [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + (userSP - 1) % 512] = -1;// Place -1 as the return value onto the user stack (to indicate invalid descripter)
+        [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;           // Set mode flag to 0 to indicate user mode
+        SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];         // Switch to user SP
+        ireturn;                                                            // return to user mode
+ 
+    endif;
+
+    alias uArea R3;
+
+    uArea = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 11] * 512;    // Starting address of the User Area page
+
+    if([uArea + 2 * semid + 496] != SEMAPHORE) then                         // If resource id field is not 1 (i.e. does not correspond to a semaphore)
+        
+        [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + (userSP - 1) % 512] = -1;// Place -1 as the return value onto the user stack (to indicate that resource id field is not 1)
+        [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;           // Set mode flag to 0 to indicate user mode
+        SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];         // Switch to user SP
+        ireturn;                                                            // return to user mode
+
+    endif;
+
+    R4 = [uArea + 2 * semid + 496 + 1]; // Place semaphore table index in a temporary register (get it from the resource table)
+    multipush(R0, R1, R2, R3);          // Push all regs used
+    R1 = 7;                             // Release Semaphore Function no
+    R2 = R4;                            // Place semid as the First argument
+    R3 = [SYSTEM_STATUS_TABLE + 1];     // Place PID as the second argument
+    call RESOURCE_MANAGER;              // Call Resource Manager
+    multipop(R0, R1, R2, R3);           // Pop all regs used
+
+    [uArea + 2 * semid + 496] = -1;     // Invalid this resource table entry (by setting it to -1)
+
+    [[PTBR + 2 * ((userSP - 1) / 512)] * 512 + (userSP - 1) % 512] = 0;     // Place 0 as the return value onto the user stack (Success)
+    [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 9] = 0;               // Set mode flag to 0 to indicate user mode
+    SP = [PROCESS_TABLE + 16 * [SYSTEM_STATUS_TABLE + 1] + 13];             // Switch to user SP
+    ireturn;                                                                // return to user mode
+
+endif;
