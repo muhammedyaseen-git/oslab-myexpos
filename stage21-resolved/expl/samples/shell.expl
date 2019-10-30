@@ -1,0 +1,21 @@
+int main()
+{
+    decl
+        string progName, msg;
+        int temp;
+    enddecl
+
+    begin
+
+        msg = "File name";
+
+        while(1 == 1) do
+
+            temp = exposcall("Write", -2, msg);
+            temp = exposcall("Read", -1, progName);
+            temp = exposcall("Exec", progName);
+        endwhile;
+
+        return 0;
+    end
+}
